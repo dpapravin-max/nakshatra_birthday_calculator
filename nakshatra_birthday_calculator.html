@@ -187,12 +187,22 @@
         <input type="time" id="btime" value="12:00">
       </div>
     </div>
+    <div class="field-row" style="margin-top:16px;">
+      <div class="field" style="flex:1 1 100%;">
+        <label for="tzOffset">Place of birth (timezone) <span class="ta">பிறந்த இடம் (நேர மண்டலம்)</span></label>
+        <select id="tzOffset"></select>
+      </div>
+    </div>
     <div class="toggle-row">
       <input type="checkbox" id="unknownTime">
       <label for="unknownTime" style="margin:0; font-weight:400; color:var(--cream-dim); font-size:13.5px;">
         I don't know the exact time (use midday) <span class="ta">சரியான நேரம் தெரியவில்லை</span>
       </label>
     </div>
+    <p class="disclaimer" style="margin-top:12px;">
+      The Moon shifts roughly 0.5° every hour, so the nakshatra depends on local time <em>at the birthplace</em>, not the browser's timezone. Pick the city/offset where the birth happened — not where you are now.
+      <span class="ta">நிலவின் நிலை ஒவ்வொரு மணி நேரமும் மாறுவதால், பிறந்த இடத்தின் நேரமண்டலத்தைத் தேர்ந்தெடுக்கவும் — நீங்கள் இப்போது இருக்கும் இடத்தை அல்ல.</span>
+    </p>
     <button class="btn" id="calcBtn">Find my Nakshatra <span class="ta">என் நட்சத்திரத்தைக் காண்க</span></button>
   </div>
 
@@ -419,10 +429,73 @@ function drawWheel(activeIdx){
   svg.innerHTML = defs + segs + glow + centerText;
 }
 
+/* ---------- timezone selector ---------- */
+const TIMEZONES = [
+  {m:-720, label:"UTC−12:00 · Baker Island"},
+  {m:-660, label:"UTC−11:00 · American Samoa"},
+  {m:-600, label:"UTC−10:00 · Honolulu"},
+  {m:-540, label:"UTC−09:00 · Anchorage"},
+  {m:-480, label:"UTC−08:00 · Los Angeles, Vancouver"},
+  {m:-420, label:"UTC−07:00 · Denver"},
+  {m:-360, label:"UTC−06:00 · Chicago, Mexico City"},
+  {m:-300, label:"UTC−05:00 · New York, Toronto"},
+  {m:-270, label:"UTC−04:30 · Caracas"},
+  {m:-240, label:"UTC−04:00 · Santiago"},
+  {m:-210, label:"UTC−03:30 · Newfoundland"},
+  {m:-180, label:"UTC−03:00 · São Paulo, Buenos Aires"},
+  {m:-120, label:"UTC−02:00 · South Georgia"},
+  {m:-60,  label:"UTC−01:00 · Azores"},
+  {m:0,    label:"UTC±00:00 · London, Lagos"},
+  {m:60,   label:"UTC+01:00 · Berlin, Paris"},
+  {m:120,  label:"UTC+02:00 · Cairo, Johannesburg"},
+  {m:180,  label:"UTC+03:00 · Nairobi, Moscow"},
+  {m:210,  label:"UTC+03:30 · Tehran"},
+  {m:240,  label:"UTC+04:00 · Dubai, Mauritius"},
+  {m:270,  label:"UTC+04:30 · Kabul"},
+  {m:300,  label:"UTC+05:00 · Karachi, Tashkent"},
+  {m:330,  label:"UTC+05:30 · Chennai, Colombo, Kolkata"},
+  {m:345,  label:"UTC+05:45 · Kathmandu"},
+  {m:360,  label:"UTC+06:00 · Dhaka"},
+  {m:390,  label:"UTC+06:30 · Yangon"},
+  {m:420,  label:"UTC+07:00 · Bangkok, Jakarta"},
+  {m:480,  label:"UTC+08:00 · Singapore, Kuala Lumpur, Manila"},
+  {m:525,  label:"UTC+08:45 · Eucla"},
+  {m:540,  label:"UTC+09:00 · Tokyo, Seoul"},
+  {m:570,  label:"UTC+09:30 · Adelaide, Darwin"},
+  {m:600,  label:"UTC+10:00 · Sydney, Melbourne"},
+  {m:630,  label:"UTC+10:30 · Lord Howe Island"},
+  {m:660,  label:"UTC+11:00 · Solomon Islands"},
+  {m:720,  label:"UTC+12:00 · Auckland, Fiji"},
+  {m:765,  label:"UTC+12:45 · Chatham Islands"},
+  {m:780,  label:"UTC+13:00 · Nuku'alofa"},
+  {m:840,  label:"UTC+14:00 · Kiribati"}
+];
+
+function populateTimezones(){
+  const sel = document.getElementById('tzOffset');
+  sel.innerHTML = TIMEZONES.map(tz => `<option value="${tz.m}">${tz.label}</option>`).join('');
+  // best-effort default: match the browser's current offset, just as a starting point
+  const browserOffset = -new Date().getTimezoneOffset();
+  let closest = TIMEZONES[0], diff = Infinity;
+  for(const tz of TIMEZONES){
+    const dd = Math.abs(tz.m - browserOffset);
+    if(dd < diff){ diff = dd; closest = tz; }
+  }
+  sel.value = closest.m;
+}
+populateTimezones();
+
 /* ---------- main calculation ---------- */
 function pad2(n){ return n.toString().padStart(2,'0'); }
-function fmtDate(date){
-  return date.toLocaleDateString('en-GB', {day:'2-digit', month:'long', year:'numeric'});
+const MONTH_NAMES = ["January","February","March","April","May","June","July","August","September","October","November","December"];
+// Formats an instant as a calendar date *in the birthplace's timezone* (given by offsetMinutes),
+// without relying on named IANA zones, since we only collected a raw UTC offset.
+function fmtDateInOffset(date, offsetMinutes){
+  const shifted = new Date(date.getTime() + offsetMinutes*60000);
+  const day = shifted.getUTCDate();
+  const month = MONTH_NAMES[shifted.getUTCMonth()];
+  const year = shifted.getUTCFullYear();
+  return `${String(day).padStart(2,'0')} ${month} ${year}`;
 }
 
 document.getElementById('calcBtn').addEventListener('click', () => {
@@ -430,7 +503,11 @@ document.getElementById('calcBtn').addEventListener('click', () => {
   if(!dateVal){ alert('Please choose your date of birth. / பிறந்த தேதியை தேர்ந்தெடுக்கவும்.'); return; }
   const unknownTime = document.getElementById('unknownTime').checked;
   const timeVal = unknownTime ? '12:00' : (document.getElementById('btime').value || '12:00');
-  const birthDate = new Date(`${dateVal}T${timeVal}:00`);
+  const offsetMinutes = parseInt(document.getElementById('tzOffset').value, 10);
+  const [by, bmo, bda] = dateVal.split('-').map(Number);
+  const [bhh, bmm] = timeVal.split(':').map(Number);
+  // Convert birthplace local time to true UTC by subtracting that place's offset from UTC
+  const birthDate = new Date(Date.UTC(by, bmo-1, bda, bhh, bmm) - offsetMinutes*60000);
 
   const birthSidMoon = siderealMoonLon(birthDate);
   const birthNakIdx = nakshatraIndex(birthSidMoon);
@@ -457,14 +534,14 @@ document.getElementById('calcBtn').addEventListener('click', () => {
 
   drawWheel(birthNakIdx);
 
-  // Scan forward from today to find monthly recurrences and the annual (same solar-month) star day
-  const today = new Date();
-  today.setHours(12,0,0,0);
+  // Scan forward from today to find monthly recurrences and the annual (same solar-month) star day.
+  // Each candidate day is evaluated at local noon in the birthplace's timezone, since that's the
+  // reference frame the birth chart itself is in.
+  const now = new Date();
+  const todayUTCms = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 12, 0, 0) - offsetMinutes*60000;
   const occurrences = [];
   for(let i=0; i<430 && occurrences.length<8; i++){
-    const d = new Date(today);
-    d.setDate(d.getDate()+i);
-    d.setHours(12,0,0,0);
+    const d = new Date(todayUTCms + i*86400000);
     const sid = siderealMoonLon(d);
     if(nakshatraIndex(sid) === birthNakIdx){
       // avoid duplicate adjacent-day hits (nakshatra can span 1-2 calendar days)
@@ -478,7 +555,7 @@ document.getElementById('calcBtn').addEventListener('click', () => {
 
   const annual = occurrences.find(o => o.isAnnual) || occurrences[0];
   if(annual){
-    document.getElementById('annualDate').textContent = fmtDate(annual.date);
+    document.getElementById('annualDate').textContent = fmtDateInOffset(annual.date, offsetMinutes);
     document.getElementById('annualSub').textContent = `Moon returns to ${nak.en} (${nak.ta}) in your birth solar month`;
   } else {
     document.getElementById('annualDate').textContent = '—';
@@ -489,7 +566,7 @@ document.getElementById('calcBtn').addEventListener('click', () => {
   occurrences.slice(0,6).forEach(o => {
     const row = document.createElement('div');
     row.className = 'monthly-row' + (o.isAnnual ? ' is-annual' : '');
-    row.innerHTML = `<span>${fmtDate(o.date)}</span>${o.isAnnual ? '<span class="tag">Annual · ஆண்டு தினம்</span>' : '<span style="color:var(--cream-dim); font-size:12px;">Monthly · மாத தினம்</span>'}`;
+    row.innerHTML = `<span>${fmtDateInOffset(o.date, offsetMinutes)}</span>${o.isAnnual ? '<span class="tag">Annual · ஆண்டு தினம்</span>' : '<span style="color:var(--cream-dim); font-size:12px;">Monthly · மாத தினம்</span>'}`;
     listEl.appendChild(row);
   });
 
